@@ -5,15 +5,15 @@ import subprocess
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
-# Složka se zvuky (musí odpovídat web.py)
+
 SOUNDS_DIR = "sounds"
 
 class TimerLogic:
     def __init__(self, state):
         self.state = state
         self.hw = None
+
         
-        # --- API pro ovládání pauzy Spotify ---
         self.sp = None
         self.spotify_was_playing = False # Pamatuje si, jestli jsme Spotify pauzli my
         
@@ -63,12 +63,12 @@ class TimerLogic:
         if not self.state.alarm_active:
             self.state.alarm_active = True
             self.state.stop_alarm_event.clear()
+
             
-            # --- ZASTAVENÍ SPOTIFY PŘED ALARMEM ---
             if self.sp:
                 try:
                     playback = self.sp.current_playback()
-                    # Pokud zrovna hraje hudba, pauzneme ji
+                    
                     if playback and playback['is_playing']:
                         self.sp.pause_playback()
                         self.spotify_was_playing = True
@@ -82,8 +82,8 @@ class TimerLogic:
     def stop_alarm(self):
         self.state.alarm_active = False
         self.state.stop_alarm_event.set()
+
         
-        # --- ZNOVUSPUŠTĚNÍ SPOTIFY PO ALARMU ---
         if self.sp and self.spotify_was_playing:
             try:
                 self.sp.start_playback()
