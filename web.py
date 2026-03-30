@@ -4,7 +4,7 @@ import logging
 import os
 from werkzeug.utils import secure_filename # Nutné pro bezpečné nahrávání
 
-# Povolené koncovky
+
 ALLOWED_EXTENSIONS = {'wav', 'mp3', 'ogg', 'm4a', 'flac'}
 
 def allowed_file(filename):
@@ -15,14 +15,14 @@ def create_app(state, logic, hardware):
     app.config['SECRET_KEY'] = 'tajne'
     app.config['UPLOAD_FOLDER'] = 'sounds' # Složka pro zvuky
 
-    # Vytvoření složky, pokud neexistuje
+    
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
     socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
-    # --- Push funkce ---
+    
     def push_update():
         data = {
             "time": state.timer_seconds,
@@ -35,17 +35,17 @@ def create_app(state, logic, hardware):
 
     state.update_callback = push_update
 
-    # --- Routy ---
+    
     @app.route('/')
     def index(): return render_template('index.html')
 
-    # API pro získání seznamu zvuků
+    
     @app.route('/api/sounds')
     def get_sounds():
         files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) if allowed_file(f)]
         return jsonify(files)
 
-    # API pro upload souboru
+    
     @app.route('/api/upload', methods=['POST'])
     def upload_file():
         if 'file' not in request.files: return jsonify({'error': 'No file part'}), 400
@@ -57,7 +57,7 @@ def create_app(state, logic, hardware):
             return jsonify({'success': True, 'filename': filename})
         return jsonify({'error': 'Invalid file type'}), 400
 
-    # --- SocketIO ---
+    
     @socketio.on('connect')
     def handle_connect():
         push_update()
@@ -78,7 +78,7 @@ def create_app(state, logic, hardware):
             hardware.update_display()
             state.trigger_update()
 
-    # Změna hlasitosti
+    
     @socketio.on('set_volume')
     def handle_volume(data):
         vol = int(data.get('volume', 50))
@@ -86,12 +86,12 @@ def create_app(state, logic, hardware):
         current = int(state.config.get("volume", 50))
         hardware.set_volume_relative(vol - current)
 
-    # Výběr zvuku (lokální nebo Spotify)
+    
     @socketio.on('set_sound')
     def handle_set_sound(data):
         spotify_link = data.get('spotify_link', '').strip()
-    
-    # Pokud přišel odkaz na Spotify, zpracujeme ho
+
+        
         if spotify_link:
             if "spotify.com/track/" in spotify_link:
                 track_id = spotify_link.split("track/")[1].split("?")[0]
@@ -107,7 +107,7 @@ def create_app(state, logic, hardware):
         state.save_config()
         state.trigger_update()
 
-    # Přehrání náhledu (Preview)
+    
     @socketio.on('preview_sound')
     def handle_preview(data):
         sound_name = data.get('sound')
