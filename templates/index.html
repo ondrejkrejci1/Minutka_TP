@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chytrá Minutka</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
+    <style>
+        body { background: #222; color: #eee; font-family: 'Segoe UI', sans-serif; text-align: center; margin: 0; padding: 20px; }
+
+        .settings-icon {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            cursor: pointer;
+            color: #888;
+            font-size: 36px;
+            transition: color 0.3s;
+            z-index: 100;
+        }
+        .settings-icon:hover { color: white; }
+
+        h1 { margin: 0; font-size: 7rem;  }
+
+        .timer {
+            font-size: 15vw;
+            font-weight: bold;
+            font-family: monospace;
+            margin: 10px 0;
+            text-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        .input-group input {
+            background: #333; border: 1px solid #555; color: white;
+            padding: 10px; font-size: 24px; width: 70px; text-align: center; border-radius: 8px;
+        }
+        input:disabled { background-color: #1a1a1a; color: #555; border-color: #333; cursor: not-allowed; }
+
+        .controls button {
+            padding: 15px 30px; font-size: 20px; margin: 10px; border: none; border-radius: 50px; cursor: pointer; color: white;
+            min-width: 120px;
+        }
+        .green { background: #28a745; }
+        .red { background: #dc3545; }
+        .blue { background: #007bff; }
+        .alarm-active { background-color: #500 !important; animation: blink 0.5s infinite; }
+        @keyframes blink { 50% { background-color: #900; } }
+
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 200; align-items: center; justify-content: center;
+        }
+        .modal {
+            background: #333; padding: 20px; border-radius: 15px; width: 90%; max-width: 400px;
+            text-align: left; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        .modal h2 { margin-top: 0; border-bottom: 1px solid #555; padding-bottom: 10px; }
+        .setting-row { margin-bottom: 20px; }
+        .setting-row label { display: block; margin-bottom: 5px; font-weight: bold; }
+
+        select, input[type=file] { width: 95%; padding: 10px; background: #222; color: white; border: 1px solid #555; border-radius: 5px; }
+        input[type=range] { width: 100%; }
+
+        .preview-btn { background: #444; border: none; color: white; padding: 5px 10px; border-radius: 5px; cursor: pointer; margin-top: 5px; }
+        .close-btn { background: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 5px; float: right; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <span class="material-icons settings-icon" onclick="openSettings()">settings</span>
+
+    <h1>Vajco</h1>
+    <div class="timer" id="display">00:00:00</div>
+
+    <div class="input-group">
+        <input type="number" id="hInput" placeholder="HH" min="0" max="23" oninput="limit(this); localTime()" onchange="sendTime()"> :
+        <input type="number" id="mInput" placeholder="MM" min="0" max="59" oninput="limit(this); localTime()" onchange="sendTime()"> :
+        <input type="number" id="sInput" placeholder="SS" min="0" max="59" oninput="limit(this); localTime()" onchange="sendTime()">
+    </div>
+
+    <br>
+    <div class="controls">
+        <button class="green" onclick="sendAction('start')">Start</button>
+        <button class="red" onclick="sendAction('pause')">Stop</button>
+        <button class="blue" onclick="sendAction('reset')">Reset</button>
+    </div>
+
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal">
+            <h2>Nastavení</h2>
+
+            <div class="setting-row">
+                <label>Hlasitost: <span id="volVal">50</span>%</label>
+                <input type="range" id="volRange" min="0" max="100" oninput="changeVolume(this.value)">
+            </div>
+
+            <div class="setting-row">
+                <label>Zvuk budíku:</label>
+                <div style="display: flex; gap: 10px;">
+                    <select id="soundSelect" onchange="changeSound(this.value)"></select>
+                    <button class="preview-btn" onclick="previewSound()"><span class="material-icons">play_arrow</span></button>
+                </div>
+            </div>
+
+            <div class="setting-row">
+                <label>Nahrát vlastní zvuk (mp3, wav):</label>
+                <input type="file" id="fileUpload">
+                <button class="green" style="width: 100%; margin: 10px 0; padding: 8px; border:none; border-radius: 10px;" onclick="uploadFile()">Nahrát</button>
+                <small id="uploadStatus" style="color: #aaa;"></small>
+            </div>
+
+            <button class="close-btn" onclick="closeSettings()">Zavřít</button>
+            <div style="clear: both;"></div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const inputs = [document.getElementById('hInput'), document.getElementById('mInput'), document.getElementById('sInput')];
+        const display = document.getElementById('display');
+
+        socket.on('status_update', (data) => {
+            // Čas
+            const fmt = (v) => v.toString().padStart(2, '0');
+            let t = data.time;
+            let h = Math.floor(t / 3600);
+            let m = Math.floor((t % 3600) / 60);
+            let s = t % 60;
+
+            display.innerText = `${fmt(h)}:${fmt(m)}:${fmt(s)}`;
+
+            inputs.forEach(inp => inp.disabled = data.running);
+            if (!document.activeElement.id.includes('Input')) {
+                document.getElementById('hInput').value = h || '';
+                document.getElementById('mInput').value = m || '';
+                document.getElementById('sInput').value = s || '';
+            }
+
+            if (data.alarm) {
+                document.body.classList.add('alarm-active');
+                display.innerText = "FINISHED!";
+            } else {
+                document.body.classList.remove('alarm-active');
+            }
+
+            document.getElementById('volRange').value = data.volume;
+            document.getElementById('volVal').innerText = data.volume;
+            // Nastavíme select, ale jen pokud uživatel zrovna nevybírá
+            if (document.activeElement.id !== 'soundSelect') {
+                document.getElementById('soundSelect').value = data.current_sound;
+            }
+        });
+
+        function sendAction(type) { socket.emit('action', {type}); }
+        function sendTime() {
+            let h = parseInt(document.getElementById('hInput').value) || 0;
+            let m = parseInt(document.getElementById('mInput').value) || 0;
+            let s = parseInt(document.getElementById('sInput').value) || 0;
+            socket.emit('set_time', {seconds: (h*3600)+(m*60)+s});
+        }
+        function limit(el) {
+            if(el.value > parseInt(el.max)) el.value = el.max;
+            if(el.value < 0) el.value = 0;
+        }
+        function localTime() {
+             // Jen vizuální update
+             let h = document.getElementById('hInput').value.padStart(2,'0');
+             let m = document.getElementById('mInput').value.padStart(2,'0');
+             let s = document.getElementById('sInput').value.padStart(2,'0');
+             display.innerText = `${h}:${m}:${s}`;
+        }
+
+        function openSettings() {
+            document.getElementById('settingsModal').style.display = 'flex';
+            loadSounds();
+        }
+        function closeSettings() {
+            document.getElementById('settingsModal').style.display = 'none';
+        }
+
+        function changeVolume(val) {
+            document.getElementById('volVal').innerText = val;
+            socket.emit('set_volume', {volume: val});
+        }
+
+        function changeSound(val) {
+            socket.emit('set_sound', {sound: val});
+        }
+
+        function previewSound() {
+            let val = document.getElementById('soundSelect').value;
+            socket.emit('preview_sound', {sound: val});
+        }
+
+        async function loadSounds() {
+            const res = await fetch('/api/sounds');
+            const files = await res.json();
+            const sel = document.getElementById('soundSelect');
+            const current = sel.value;
+            sel.innerHTML = '';
+            files.forEach(f => {
+                let opt = document.createElement('option');
+                opt.value = f;
+                opt.innerText = f;
+                sel.appendChild(opt);
+            });
+            if (current) sel.value = current;
+        }
+
+        async function uploadFile() {
+            const input = document.getElementById('fileUpload');
+            const status = document.getElementById('uploadStatus');
+            if (!input.files[0]) return;
+
+            const formData = new FormData();
+            formData.append('file', input.files[0]);
+
+            status.innerText = "Uploading...";
+
+            try {
+                const res = await fetch('/api/upload', {method: 'POST', body: formData});
+                const data = await res.json();
+                if (data.success) {
+                    status.innerText = "Uploaded!";
+                    status.style.color = "lightgreen";
+                    await loadSounds();
+                    document.getElementById('soundSelect').value = data.filename;
+                    changeSound(data.filename);
+                } else {
+                    status.innerText = "Error: " + data.error;
+                    status.style.color = "red";
+                }
+            } catch (e) {
+                status.innerText = "Connection error";
+            }
+        }
+
+	function setSpotify() {
+	    const link = document.getElementById('spotifyInput').value;
+	    if(link) {
+        	// Pošle odkaz na server do naší upravené funkce
+	        socket.emit('set_sound', { spotify_link: link });
+	        // Vizuálně odznačí lokální zvuk v roletce, ať je jasné, že hraje Spotify
+	        document.getElementById('soundSelect').value = ''; 
+	        alert("Spotify zvuk nastaven!");
+	    }
+	}
+    </script>
+</body>
+</html>
